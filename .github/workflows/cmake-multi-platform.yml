@@ -141,24 +141,8 @@ jobs:
         # Fix library paths
         install_name_tool -add_rpath @executable_path "${APP}/Contents/MacOS/${PROJECT}" 2>/dev/null || true
 
-        cat > "${APP}/Contents/Info.plist" << PLIST
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-          <key>CFBundleExecutable</key>
-          <string>${PROJECT}</string>
-          <key>CFBundleIdentifier</key>
-          <string>com.${PROJECT,,}.app</string>
-          <key>CFBundleName</key>
-          <string>${PROJECT}</string>
-          <key>CFBundleVersion</key>
-          <string>1.0</string>
-          <key>CFBundlePackageType</key>
-          <string>APPL</string>
-        </dict>
-        </plist>
-        PLIST
+        PROJECT_LOWER=$(echo "$PROJECT" | tr '[:upper:]' '[:lower:]')
+        printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n  <key>CFBundleExecutable</key>\n  <string>%s</string>\n  <key>CFBundleIdentifier</key>\n  <string>com.%s.app</string>\n  <key>CFBundleName</key>\n  <string>%s</string>\n  <key>CFBundleVersion</key>\n  <string>1.0</string>\n  <key>CFBundlePackageType</key>\n  <string>APPL</string>\n</dict>\n</plist>\n' "$PROJECT" "$PROJECT_LOWER" "$PROJECT" > "${APP}/Contents/Info.plist"
 
         # Create a zip to preserve executable permissions
         zip -r "${PROJECT}-macOS.zip" "${APP}"
