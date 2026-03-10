@@ -125,6 +125,7 @@ jobs:
 
     - name: Create macOS app bundle
       if: runner.os == 'macOS'
+      shell: bash
       run: |
         PROJECT=${{ steps.project.outputs.name }}
         APP="${PROJECT}.app"
