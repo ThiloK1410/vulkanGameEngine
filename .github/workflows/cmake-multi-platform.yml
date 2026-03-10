@@ -86,3 +86,55 @@ jobs:
       # Execute tests defined by the CMake configuration. Note that --build-config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest --build-config ${{ matrix.build_type }}
+
+    - name: Get project name
+      id: project
+      shell: bash
+      run: |
+        name=$(grep -m1 'project(' CMakeLists.txt | sed 's/project(\([^)]*\))/\1/')
+        echo "name=$name" >> "$GITHUB_OUTPUT"
+
+    - name: Create AppImage
+      if: runner.os == 'Linux'
+      run: |
+        PROJECT=${{ steps.project.outputs.name }}
+        # Generate .desktop file
+        cat > /tmp/${PROJECT}.desktop << DESKTOP
+        [Desktop Entry]
+        Name=${PROJECT}
+        Exec=${PROJECT}
+        Icon=${PROJECT,,}
+        Type=Application
+        Categories=Graphics;
+        DESKTOP
+
+        # Download linuxdeploy
+        wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+        chmod +x linuxdeploy-x86_64.AppImage
+
+        # Create AppDir
+        mkdir -p AppDir/usr/bin
+        cp ${{ steps.strings.outputs.build-output-dir }}/${PROJECT} AppDir/usr/bin/
+
+        # Build AppImage
+        APPIMAGE_EXTRACT_AND_RUN=1 ./linuxdeploy-x86_64.AppImage \
+          --appdir AppDir \
+          --desktop-file /tmp/${PROJECT}.desktop \
+          --icon-file .github/packaging/${PROJECT,,}.svg \
+          --output appimage
+
+    - name: Upload AppImage
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.project.outputs.name }}-Linux-${{ matrix.c_compiler }}
+        path: "*.AppImage"
+
+    - name: Upload Windows executable
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.project.outputs.name }}-Windows
+        path: |
+          ${{ steps.strings.outputs.build-output-dir }}/Release/*.exe
+          ${{ steps.strings.outputs.build-output-dir }}/Release/*.dll
