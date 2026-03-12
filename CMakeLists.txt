@@ -22,6 +22,7 @@ include(${CPM_DOWNLOAD_LOCATION})
 # find essential vulkan dependency (cmake internal script)
 find_package(Vulkan REQUIRED)
 
+# get dependencies via CPMs short syntax
 cpmaddpackage("gh:libsdl-org/SDL#release-3.4.2")
 cpmaddpackage("gh:g-truc/glm#1.0.3")
 cpmaddpackage("gh:tinyobjloader/tinyobjloader@1.0.6")
@@ -29,6 +30,7 @@ cpmaddpackage("gh:charles-lunarg/vk-bootstrap@1.4.344")
 cpmaddpackage("gh:GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator@3.3.0")
 cpmaddpackage("gh:fmtlib/fmt@#12.1.0")
 
+# link imgui manually because of custom backends
 cpmaddpackage(URI gh:ocornut/imgui@1.92.6 DOWNLOAD_ONLY)
 add_library(
   imgui STATIC
@@ -41,6 +43,7 @@ add_library(
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
+# manual download of single stb header
 file(
   DOWNLOAD
   https://raw.githubusercontent.com/nothings/stb/refs/heads/master/stb_image.h
@@ -59,4 +62,5 @@ target_link_libraries(
   glm
   imgui
   GPUOpen::VulkanMemoryAllocator
+  vk-bootstrap::vk-bootstrap
   fmt)
