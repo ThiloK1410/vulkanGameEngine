@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.14)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 project(Vulkan)
 include(FetchContent)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -26,7 +31,9 @@ cpmaddpackage("gh:KhronosGroup/Vulkan-Headers#${VULKAN_PIN}")
 cpmaddpackage("gh:KhronosGroup/Vulkan-Utility-Libraries#${VULKAN_PIN}")
 
 # find vulkan loader (ABI-stable, safe as system dependency)
-find_library(VULKAN_LOADER NAMES vulkan vulkan-1
+find_library(
+  VULKAN_LOADER
+  NAMES vulkan vulkan-1
   HINTS $ENV{VULKAN_SDK}/lib)
 if(NOT VULKAN_LOADER)
   message(FATAL_ERROR "Vulkan loader not found")
