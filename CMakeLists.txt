@@ -19,8 +19,17 @@ endif()
 
 include(${CPM_DOWNLOAD_LOCATION})
 
-# find essential vulkan dependency (cmake internal script)
-find_package(Vulkan REQUIRED)
+# fetch vulkan headers + utilities at a matching pinned version (before other
+# vulkan-dependent packages so CPM satisfies their find_package(Vulkan) calls)
+set(VULKAN_PIN "v1.4.304")
+cpmaddpackage("gh:KhronosGroup/Vulkan-Headers#${VULKAN_PIN}")
+cpmaddpackage("gh:KhronosGroup/Vulkan-Utility-Libraries#${VULKAN_PIN}")
+
+# find vulkan loader (ABI-stable, safe as system dependency)
+find_library(VULKAN_LOADER NAMES vulkan vulkan-1)
+if(NOT VULKAN_LOADER)
+  message(FATAL_ERROR "Vulkan loader not found")
+endif()
 
 # get dependencies via CPMs short syntax
 cpmaddpackage("gh:libsdl-org/SDL#release-3.4.2")
@@ -57,7 +66,9 @@ target_include_directories(${CMAKE_PROJECT_NAME}
                            PRIVATE ${CMAKE_BINARY_DIR}/stb)
 target_link_libraries(
   ${CMAKE_PROJECT_NAME}
-  Vulkan::Vulkan
+  Vulkan::Headers
+  Vulkan::UtilityHeaders
+  ${VULKAN_LOADER}
   SDL3::SDL3
   glm
   imgui
