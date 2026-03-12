@@ -26,7 +26,8 @@ cpmaddpackage("gh:KhronosGroup/Vulkan-Headers#${VULKAN_PIN}")
 cpmaddpackage("gh:KhronosGroup/Vulkan-Utility-Libraries#${VULKAN_PIN}")
 
 # find vulkan loader (ABI-stable, safe as system dependency)
-find_library(VULKAN_LOADER NAMES vulkan vulkan-1)
+find_library(VULKAN_LOADER NAMES vulkan vulkan-1
+  HINTS $ENV{VULKAN_SDK}/lib)
 if(NOT VULKAN_LOADER)
   message(FATAL_ERROR "Vulkan loader not found")
 endif()
