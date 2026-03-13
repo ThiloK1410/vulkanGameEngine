@@ -138,11 +138,36 @@ jobs:
           [ -f "$lib" ] && cp "$lib" "${APP}/Contents/MacOS/"
         done
 
+        # Copy Vulkan loader and rewrite the executable's reference to a bundle-relative path
+        VULKAN_LIB=$(otool -L "${APP}/Contents/MacOS/${PROJECT}" | grep -o '/.*libvulkan[^ ]*')
+        if [ -n "$VULKAN_LIB" ] && [ -f "$VULKAN_LIB" ]; then
+          cp "$VULKAN_LIB" "${APP}/Contents/MacOS/"
+          install_name_tool -change "$VULKAN_LIB" @executable_path/$(basename "$VULKAN_LIB") "${APP}/Contents/MacOS/${PROJECT}"
+        fi
+
+        # Copy MoltenVK (the actual Vulkan driver on macOS) and its ICD manifest
+        MVK_DIR=$(dirname "$VULKAN_LIB")
+        if [ -f "$MVK_DIR/libMoltenVK.dylib" ]; then
+          cp "$MVK_DIR/libMoltenVK.dylib" "${APP}/Contents/MacOS/"
+        fi
+
+        # Create ICD manifest pointing to the bundled MoltenVK
+        mkdir -p "${APP}/Contents/Resources/vulkan/icd.d"
+        cat > "${APP}/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json" << 'ICDJSON'
+        {
+          "file_format_version": "1.0.0",
+          "ICD": {
+            "library_path": "../../../MacOS/libMoltenVK.dylib",
+            "api_version": "1.2.0"
+          }
+        }
+        ICDJSON
+
         # Fix library paths
         install_name_tool -add_rpath @executable_path "${APP}/Contents/MacOS/${PROJECT}" 2>/dev/null || true
 
         PROJECT_LOWER=$(echo "$PROJECT" | tr '[:upper:]' '[:lower:]')
-        printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n  <key>CFBundleExecutable</key>\n  <string>%s</string>\n  <key>CFBundleIdentifier</key>\n  <string>com.%s.app</string>\n  <key>CFBundleName</key>\n  <string>%s</string>\n  <key>CFBundleVersion</key>\n  <string>1.0</string>\n  <key>CFBundlePackageType</key>\n  <string>APPL</string>\n</dict>\n</plist>\n' "$PROJECT" "$PROJECT_LOWER" "$PROJECT" > "${APP}/Contents/Info.plist"
+        printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n  <key>CFBundleExecutable</key>\n  <string>%s</string>\n  <key>CFBundleIdentifier</key>\n  <string>com.%s.app</string>\n  <key>CFBundleName</key>\n  <string>%s</string>\n  <key>CFBundleVersion</key>\n  <string>1.0</string>\n  <key>CFBundlePackageType</key>\n  <string>APPL</string>\n  <key>LSEnvironment</key>\n  <dict>\n    <key>VK_ICD_FILENAMES</key>\n    <string>../Resources/vulkan/icd.d/MoltenVK_icd.json</string>\n  </dict>\n</dict>\n</plist>\n' "$PROJECT" "$PROJECT_LOWER" "$PROJECT" > "${APP}/Contents/Info.plist"
 
         # Create a zip to preserve executable permissions
         zip -r "${PROJECT}-macOS.zip" "${APP}"
