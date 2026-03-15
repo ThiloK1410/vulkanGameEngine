@@ -3,6 +3,7 @@
 #include "vk_engine.h"
 
 #include <chrono>
+#include <cstring>
 #include <thread>
 
 #include <SDL3/SDL.h>
@@ -10,8 +11,10 @@
 #include <VkBootstrap.h>
 
 #include <fmt/core.h>
+#include <glm/mat4x4.hpp>
 
 #include "vk_initializers.h"
+#include "vk_pipelines.h"
 #include "vk_types.h"
 
 #ifdef NDEBUG
@@ -49,6 +52,8 @@ void VulkanEngine::init() {
   init_swapchain();
   init_commands();
   init_sync_structures();
+  init_pipelines();
+  init_meshes();
 
   // everything went fine
   _isInitialized = true;
@@ -77,8 +82,20 @@ void VulkanEngine::init_vulkan() {
   }
 
   // 3. Select physical device
+  //   Enable Vulkan 1.3 features we need:
+  //   - dynamicRendering: use vkCmdBeginRendering instead of render passes
+  //   - synchronization2: improved pipeline barrier API (vkCmdPipelineBarrier2)
+  VkPhysicalDeviceVulkan13Features features13{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+      .synchronization2 = true,
+      .dynamicRendering = true,
+  };
+
   vkb::PhysicalDeviceSelector selector{vkb_inst};
-  auto phys_ret = selector.set_minimum_version(1, 3).set_surface(_surface).select();
+  auto phys_ret = selector.set_minimum_version(1, 3)
+                      .set_surface(_surface)
+                      .set_required_features_13(features13)
+                      .select();
 
   if (!phys_ret) {
     throw std::runtime_error(
@@ -108,6 +125,14 @@ void VulkanEngine::init_vulkan() {
   }
   _graphicsQueue = queue_ret.value();
   _graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
+  // 6. Create VMA allocator
+  VmaAllocatorCreateInfo allocatorInfo{
+      .physicalDevice = _chosenGPU,
+      .device = _device,
+      .instance = _instance,
+  };
+  vmaCreateAllocator(&allocatorInfo, &_allocator);
 
   fmt::print("Vulkan initialized — GPU: {}\n", physicalDevice.name);
 }
@@ -210,9 +235,135 @@ void VulkanEngine::init_sync_structures() {
   }
 }
 
+AllocatedBuffer VulkanEngine::create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                                             VmaMemoryUsage memoryUsage) {
+  VkBufferCreateInfo bufferInfo{
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = size,
+      .usage = usage,
+  };
+
+  VmaAllocationCreateInfo allocInfo{
+      .usage = memoryUsage,
+  };
+
+  AllocatedBuffer buffer;
+  VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &allocInfo, &buffer.buffer, &buffer.allocation,
+                           nullptr));
+  return buffer;
+}
+
+void VulkanEngine::init_meshes() {
+  // 8 corners of a unit cube
+  Vertex vertices[] = {
+      {{-0.5f, -0.5f, -0.5f}}, // 0: left  bottom back
+      {{ 0.5f, -0.5f, -0.5f}}, // 1: right bottom back
+      {{ 0.5f,  0.5f, -0.5f}}, // 2: right top    back
+      {{-0.5f,  0.5f, -0.5f}}, // 3: left  top    back
+      {{-0.5f, -0.5f,  0.5f}}, // 4: left  bottom front
+      {{ 0.5f, -0.5f,  0.5f}}, // 5: right bottom front
+      {{ 0.5f,  0.5f,  0.5f}}, // 6: right top    front
+      {{-0.5f,  0.5f,  0.5f}}, // 7: left  top    front
+  };
+
+  // 12 edges, 2 indices each = 24 indices
+  uint16_t indices[] = {
+      // back face edges
+      0, 1, 1, 2, 2, 3, 3, 0,
+      // front face edges
+      4, 5, 5, 6, 6, 7, 7, 4,
+      // connecting edges (back to front)
+      0, 4, 1, 5, 2, 6, 3, 7,
+  };
+
+  // create and upload vertex buffer
+  _cubeMesh.vertexBuffer =
+      create_buffer(sizeof(vertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+  void* data;
+  vmaMapMemory(_allocator, _cubeMesh.vertexBuffer.allocation, &data);
+  memcpy(data, vertices, sizeof(vertices));
+  vmaUnmapMemory(_allocator, _cubeMesh.vertexBuffer.allocation);
+
+  // create and upload index buffer
+  _cubeMesh.indexBuffer =
+      create_buffer(sizeof(indices), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+  vmaMapMemory(_allocator, _cubeMesh.indexBuffer.allocation, &data);
+  memcpy(data, indices, sizeof(indices));
+  vmaUnmapMemory(_allocator, _cubeMesh.indexBuffer.allocation);
+
+  _cubeMesh.indexCount = sizeof(indices) / sizeof(indices[0]);
+
+  fmt::print("Cube mesh created — {} vertices, {} indices\n", sizeof(vertices) / sizeof(vertices[0]),
+             _cubeMesh.indexCount);
+}
+
+void Pipelines::cleanup(VkDevice device) {
+  vkDestroyPipeline(device, triangle, nullptr);
+  vkDestroyPipelineLayout(device, triangleLayout, nullptr);
+}
+
+void VulkanEngine::init_pipelines() {
+  // push constants: mat4 MVP (vertex) + vec4 color (fragment)
+  VkPushConstantRange pushConstantRange{
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+      .offset = 0,
+      .size = sizeof(PushConstants),
+  };
+
+  VkPipelineLayoutCreateInfo layoutInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .pushConstantRangeCount = 1,
+      .pPushConstantRanges = &pushConstantRange,
+  };
+  VK_CHECK(vkCreatePipelineLayout(_device, &layoutInfo, nullptr, &_pipelines.triangleLayout));
+
+  // load shaders (resolve relative to the executable's directory)
+  std::string basePath = SDL_GetBasePath();
+
+  VkShaderModule vertShader;
+  if (!load_shader_module((basePath + "shaders/cube.vert.spv").c_str(), _device, &vertShader)) {
+    throw std::runtime_error("Failed to load cube vertex shader");
+  }
+  VkShaderModule fragShader;
+  if (!load_shader_module((basePath + "shaders/cube.frag.spv").c_str(), _device, &fragShader)) {
+    throw std::runtime_error("Failed to load cube fragment shader");
+  }
+
+  // build the pipeline
+  PipelineBuilder builder;
+  builder._pipelineLayout = _pipelines.triangleLayout;
+  builder.set_shaders(vertShader, fragShader);
+  builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_LINE_LIST);
+  builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+  builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.set_vertex_input(sizeof(Vertex), {
+      {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0},
+  });
+  builder.set_multisampling_none();
+  builder.disable_blending();
+  builder.disable_depthtest();
+  builder.set_color_attachment_format(_swapchainImageFormat);
+
+  _pipelines.triangle = builder.build(_device);
+
+  // shader modules can be destroyed after pipeline creation
+  vkDestroyShaderModule(_device, vertShader, nullptr);
+  vkDestroyShaderModule(_device, fragShader, nullptr);
+
+  fmt::print("Cube pipeline created\n");
+}
+
 void VulkanEngine::cleanup() {
   if (_isInitialized) {
     vkDeviceWaitIdle(_device);
+
+    _pipelines.cleanup(_device);
+
+    vmaDestroyBuffer(_allocator, _cubeMesh.vertexBuffer.buffer, _cubeMesh.vertexBuffer.allocation);
+    vmaDestroyBuffer(_allocator, _cubeMesh.indexBuffer.buffer, _cubeMesh.indexBuffer.allocation);
+    vmaDestroyAllocator(_allocator);
 
     vkDestroyFence(_device, _renderFence, nullptr);
     vkDestroySemaphore(_device, _swapchainSemaphore, nullptr);
@@ -253,14 +404,16 @@ void VulkanEngine::draw() {
 
   // Clear color that cycles over time
   float flash = std::abs(std::sin(_frameNumber / 120.f));
-  VkClearColorValue clearValue = {{0.0f, 0.0f, flash, 1.0f}};
 
-  // Transition image layout: UNDEFINED → TRANSFER_DST (so we can clear it)
-  VkImageMemoryBarrier clearBarrier{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-      .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+  // Transition image layout: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
+  VkImageMemoryBarrier2 clearBarrier{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_NONE,
+      .srcAccessMask = VK_ACCESS_2_NONE,
+      .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+      .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
       .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-      .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
       .image = _swapchainImages[swapchainImageIndex],
       .subresourceRange = {
           .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -269,24 +422,84 @@ void VulkanEngine::draw() {
       },
   };
 
-  vkCmdPipelineBarrier(_mainCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                       &clearBarrier);
-
-  // Clear the image
-  VkImageSubresourceRange clearRange{
-      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-      .levelCount = 1,
-      .layerCount = 1,
+  VkDependencyInfo clearDep{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .imageMemoryBarrierCount = 1,
+      .pImageMemoryBarriers = &clearBarrier,
   };
-  vkCmdClearColorImage(_mainCommandBuffer, _swapchainImages[swapchainImageIndex],
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearValue, 1, &clearRange);
+  vkCmdPipelineBarrier2(_mainCommandBuffer, &clearDep);
 
-  // Transition image layout: TRANSFER_DST → PRESENT_SRC (so it can be displayed)
-  VkImageMemoryBarrier presentBarrier{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-      .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-      .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+  // Begin dynamic rendering — clears the image and provides a target for draw commands
+  VkRenderingAttachmentInfo colorAttachment{
+      .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+      .imageView = _swapchainImageViews[swapchainImageIndex],
+      .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+      .clearValue = {.color = {{0.0f, 0.0f, flash, 1.0f}}},
+  };
+
+  VkRenderingInfo renderInfo{
+      .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+      .renderArea = {.extent = _swapchainExtent},
+      .layerCount = 1,
+      .colorAttachmentCount = 1,
+      .pColorAttachments = &colorAttachment,
+  };
+
+  vkCmdBeginRendering(_mainCommandBuffer, &renderInfo);
+
+  // set viewport and scissor to cover the full swapchain image
+  VkViewport viewport{
+      .x = 0,
+      .y = 0,
+      .width = (float)_swapchainExtent.width,
+      .height = (float)_swapchainExtent.height,
+      .minDepth = 0.f,
+      .maxDepth = 1.f,
+  };
+  vkCmdSetViewport(_mainCommandBuffer, 0, 1, &viewport);
+
+  VkRect2D scissor{
+      .offset = {0, 0},
+      .extent = _swapchainExtent,
+  };
+  vkCmdSetScissor(_mainCommandBuffer, 0, 1, &scissor);
+
+  vkCmdBindPipeline(_mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelines.triangle);
+
+  // orbit camera around the origin using frame number
+  float angle = _frameNumber / 120.f;
+  _camera.orbitAround(glm::vec3{0.f}, 3.f, angle);
+
+  float aspectRatio = (float)_swapchainExtent.width / (float)_swapchainExtent.height;
+  glm::mat4 mvp = _camera.projectionMatrix(aspectRatio) * _camera.viewMatrix();
+
+  PushConstants push{
+      .mvp = mvp,
+      .color = {1.0f, 1.0f, 1.0f, 1.0f},
+  };
+  vkCmdPushConstants(_mainCommandBuffer, _pipelines.triangleLayout,
+                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push),
+                     &push);
+
+  // bind vertex and index buffers
+  VkDeviceSize offset = 0;
+  vkCmdBindVertexBuffers(_mainCommandBuffer, 0, 1, &_cubeMesh.vertexBuffer.buffer, &offset);
+  vkCmdBindIndexBuffer(_mainCommandBuffer, _cubeMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+
+  vkCmdDrawIndexed(_mainCommandBuffer, _cubeMesh.indexCount, 1, 0, 0, 0);
+
+  vkCmdEndRendering(_mainCommandBuffer);
+
+  // Transition image layout: COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC
+  VkImageMemoryBarrier2 presentBarrier{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+      .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+      .dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+      .dstAccessMask = VK_ACCESS_2_NONE,
+      .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
       .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
       .image = _swapchainImages[swapchainImageIndex],
       .subresourceRange = {
@@ -296,9 +509,12 @@ void VulkanEngine::draw() {
       },
   };
 
-  vkCmdPipelineBarrier(_mainCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                       &presentBarrier);
+  VkDependencyInfo presentDep{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .imageMemoryBarrierCount = 1,
+      .pImageMemoryBarriers = &presentBarrier,
+  };
+  vkCmdPipelineBarrier2(_mainCommandBuffer, &presentDep);
 
   VK_CHECK(vkEndCommandBuffer(_mainCommandBuffer));
 

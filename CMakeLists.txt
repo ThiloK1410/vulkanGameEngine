@@ -26,9 +26,9 @@ include(${CPM_DOWNLOAD_LOCATION})
 
 # fetch vulkan headers + utilities at a matching pinned version (before other
 # vulkan-dependent packages so CPM satisfies their find_package(Vulkan) calls)
-set(VULKAN_PIN "v1.4.304")
-cpmaddpackage("gh:KhronosGroup/Vulkan-Headers#${VULKAN_PIN}")
-cpmaddpackage("gh:KhronosGroup/Vulkan-Utility-Libraries#${VULKAN_PIN}")
+set(VULKAN_VERSION "1.4.304")
+cpmaddpackage("gh:KhronosGroup/Vulkan-Headers#v${VULKAN_VERSION}")
+cpmaddpackage("gh:KhronosGroup/Vulkan-Utility-Libraries#v${VULKAN_VERSION}")
 
 # find vulkan loader (ABI-stable, safe as system dependency)
 find_library(
@@ -46,6 +46,13 @@ cpmaddpackage("gh:tinyobjloader/tinyobjloader@1.0.6")
 cpmaddpackage("gh:charles-lunarg/vk-bootstrap@1.4.344")
 cpmaddpackage("gh:GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator@3.3.0")
 cpmaddpackage("gh:fmtlib/fmt@#12.1.0")
+
+# shader compiler (builds glslang from source)
+set(ENABLE_GLSLANG_BINARIES ON CACHE BOOL "" FORCE)
+set(ENABLE_SPVREMAPPER OFF CACHE BOOL "" FORCE)
+set(ENABLE_CTEST OFF CACHE BOOL "" FORCE)
+set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
+cpmaddpackage("gh:KhronosGroup/glslang#vulkan-sdk-${VULKAN_VERSION}.0")
 
 # link imgui manually because of custom backends
 cpmaddpackage(URI gh:ocornut/imgui@1.92.6 DOWNLOAD_ONLY)
@@ -66,10 +73,38 @@ file(
   https://raw.githubusercontent.com/nothings/stb/refs/heads/master/stb_image.h
   ${CMAKE_BINARY_DIR}/stb/stb_image.h)
 
+# auto-discover all shader files and compile to SPIR-V
+file(
+  GLOB_RECURSE SHADER_FILES
+  CONFIGURE_DEPENDS
+  ${CMAKE_SOURCE_DIR}/shaders/*.vert
+  ${CMAKE_SOURCE_DIR}/shaders/*.frag
+  ${CMAKE_SOURCE_DIR}/shaders/*.comp)
+
+foreach(SHADER ${SHADER_FILES})
+  # mirror directory structure: shaders/subdir/foo.vert → build/shaders/subdir/foo.vert.spv
+  file(RELATIVE_PATH REL_PATH ${CMAKE_SOURCE_DIR}/shaders ${SHADER})
+  set(SPV_OUTPUT ${CMAKE_BINARY_DIR}/shaders/${REL_PATH}.spv)
+  get_filename_component(SPV_DIR ${SPV_OUTPUT} DIRECTORY)
+  file(MAKE_DIRECTORY ${SPV_DIR})
+
+  add_custom_command(
+    OUTPUT ${SPV_OUTPUT}
+    COMMAND glslang-standalone -V ${SHADER} -o ${SPV_OUTPUT}
+    DEPENDS ${SHADER}
+    COMMENT "Compiling shader ${REL_PATH}")
+  list(APPEND SPV_FILES ${SPV_OUTPUT})
+endforeach()
+
+add_custom_target(shaders DEPENDS ${SPV_FILES})
+
 add_executable(
   ${CMAKE_PROJECT_NAME}
   ${PROJECT_SOURCE_DIR}/src/main.cpp ${PROJECT_SOURCE_DIR}/src/vk_engine.cpp
-  ${PROJECT_SOURCE_DIR}/src/vk_initializers.cpp)
+  ${PROJECT_SOURCE_DIR}/src/vk_initializers.cpp
+  ${PROJECT_SOURCE_DIR}/src/vk_pipelines.cpp
+  ${PROJECT_SOURCE_DIR}/src/vk_mem_alloc_impl.cpp
+  ${PROJECT_SOURCE_DIR}/src/camera.cpp)
 target_include_directories(${CMAKE_PROJECT_NAME}
                            PRIVATE ${CMAKE_BINARY_DIR}/stb)
 target_link_libraries(
@@ -83,3 +118,4 @@ target_link_libraries(
   GPUOpen::VulkanMemoryAllocator
   vk-bootstrap::vk-bootstrap
   fmt)
+add_dependencies(${CMAKE_PROJECT_NAME} shaders)

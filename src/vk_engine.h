@@ -5,7 +5,17 @@
 
 #include <vector> // std::vector for swapchain image arrays
 
+#include <vk_mem_alloc.h>
+
+#include "camera.h"
 #include "vk_types.h"
+
+struct Pipelines {
+  VkPipeline triangle;
+  VkPipelineLayout triangleLayout;
+
+  void cleanup(VkDevice device);
+};
 
 class VulkanEngine {
 public:
@@ -40,6 +50,13 @@ public:
   std::vector<VkImageView> _swapchainImageViews;       // "views" into the images (how shaders access them)
   VkExtent2D _swapchainExtent;                         // resolution of the swapchain images
 
+  VmaAllocator _allocator;
+
+  Camera _camera;
+  Mesh _cubeMesh;
+
+  Pipelines _pipelines;
+
   static VulkanEngine &Get();
 
   // initializes everything in the engine
@@ -59,6 +76,9 @@ private:
   void init_commands();
   void init_sync_structures();
   void init_swapchain();
+  void init_pipelines();
+  void init_meshes();
   void create_swapchain(uint32_t width, uint32_t height);
   void destroy_swapchain();
+  AllocatedBuffer create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 };
