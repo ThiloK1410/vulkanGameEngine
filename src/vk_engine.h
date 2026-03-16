@@ -8,11 +8,16 @@
 #include <vk_mem_alloc.h>
 
 #include "camera.h"
+#include "gui.h"
+#include "terrain.h"
 #include "vk_types.h"
 
 struct Pipelines {
   VkPipeline triangle;
   VkPipelineLayout triangleLayout;
+
+  VkPipeline fade;
+  VkPipeline terrain;
 
   void cleanup(VkDevice device);
 };
@@ -50,10 +55,23 @@ public:
   std::vector<VkImageView> _swapchainImageViews;       // "views" into the images (how shaders access them)
   VkExtent2D _swapchainExtent;                         // resolution of the swapchain images
 
+  VkImage _drawImage;
+  VkImageView _drawImageView;
+  VmaAllocation _drawImageAllocation;
+  bool _drawImageReady{false};
+
+  VkImage _depthImage;
+  VkImageView _depthImageView;
+  VmaAllocation _depthImageAllocation;
+  VkFormat _depthFormat{VK_FORMAT_D32_SFLOAT};
+
   VmaAllocator _allocator;
 
   Camera _camera;
   Mesh _cubeMesh;
+  DebugGui _debugGui;
+  Terrain _terrain;
+  TerrainParams _terrainParams;
 
   Pipelines _pipelines;
 
@@ -78,7 +96,11 @@ private:
   void init_swapchain();
   void init_pipelines();
   void init_meshes();
+  void init_imgui();
+  void record_scene(VkCommandBuffer cmd);
+  void copy_to_swapchain(VkCommandBuffer cmd, uint32_t swapchainImageIndex);
   void create_swapchain(uint32_t width, uint32_t height);
   void destroy_swapchain();
+  void resize_swapchain();
   AllocatedBuffer create_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 };

@@ -26,3 +26,12 @@
       abort();                                                                                     \
     }                                                                                              \
   } while (0)
+
+void transition_image(VkCommandBuffer cmd, VkImage image,
+                      VkImageLayout oldLayout, VkImageLayout newLayout,
+                      VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
+                      VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess);
+
+void buffer_barrier(VkCommandBuffer cmd, VkBuffer buffer, VkDeviceSize size,
+                    VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
+                    VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess);

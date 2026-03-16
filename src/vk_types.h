@@ -19,6 +19,12 @@ struct Vertex {
   glm::vec3 position;
 };
 
+// matches the compute shader's TerrainVertex struct (vec4 + vec4 = 32 bytes)
+struct TerrainVertex {
+  glm::vec4 position;
+  glm::vec4 normal;
+};
+
 struct AllocatedBuffer {
   VkBuffer buffer;
   VmaAllocation allocation;

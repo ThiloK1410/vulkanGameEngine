@@ -1,0 +1,34 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "psrdnoise3.glsl"
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(push_constant) uniform Params {
+    uint gridSize;
+    float voxelScale;
+    float frequency;
+    float amplitude;
+    float alpha;
+    float isoLevel;
+} params;
+
+layout(std430, set = 0, binding = 0) writeonly buffer DensityField {
+    float densities[];
+};
+
+void main() {
+    uvec3 gid = gl_GlobalInvocationID;
+    if (any(greaterThanEqual(gid, uvec3(params.gridSize)))) return;
+
+    uint idx = gid.x + gid.y * params.gridSize + gid.z * params.gridSize * params.gridSize;
+
+    // center the grid at the origin
+    float halfExtent = float(params.gridSize) * params.voxelScale * 0.5;
+    vec3 pos = vec3(gid) * params.voxelScale - vec3(halfExtent);
+    vec3 gradient;
+    float n = psrdnoise(pos * params.frequency, vec3(0.0), params.alpha, gradient);
+
+    densities[idx] = n * params.amplitude;
+}

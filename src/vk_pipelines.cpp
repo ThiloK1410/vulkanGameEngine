@@ -110,6 +110,30 @@ void PipelineBuilder::disable_blending() {
   _colorBlendAttachment.blendEnable = VK_FALSE;
 }
 
+void PipelineBuilder::enable_blending_alpha() {
+  _colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  _colorBlendAttachment.blendEnable = VK_TRUE;
+  _colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+  _colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  _colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+  _colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  _colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  _colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+}
+
+void PipelineBuilder::set_depth_format(VkFormat format) {
+  _renderInfo.depthAttachmentFormat = format;
+}
+
+void PipelineBuilder::enable_depthtest(VkCompareOp op) {
+  _depthStencil.depthTestEnable = VK_TRUE;
+  _depthStencil.depthWriteEnable = VK_TRUE;
+  _depthStencil.depthCompareOp = op;
+  _depthStencil.depthBoundsTestEnable = VK_FALSE;
+  _depthStencil.stencilTestEnable = VK_FALSE;
+}
+
 void PipelineBuilder::disable_depthtest() {
   _depthStencil.depthTestEnable = VK_FALSE;
   _depthStencil.depthWriteEnable = VK_FALSE;

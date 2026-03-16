@@ -31,7 +31,10 @@ public:
   void set_multisampling_none();
   void set_color_attachment_format(VkFormat format);
   void set_vertex_input(uint32_t stride, std::vector<VkVertexInputAttributeDescription> attributes);
+  void set_depth_format(VkFormat format);
   void disable_blending();
+  void enable_blending_alpha();
+  void enable_depthtest(VkCompareOp op = VK_COMPARE_OP_LESS);
   void disable_depthtest();
 
   VkPipeline build(VkDevice device);

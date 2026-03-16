@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 project(Vulkan)
+option(ENABLE_DEBUG_GUI "Enable ImGui debug overlay" ON)
 include(FetchContent)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -63,15 +64,21 @@ add_library(
   ${imgui_SOURCE_DIR}/imgui_tables.cpp
   ${imgui_SOURCE_DIR}/imgui_widgets.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
-  ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
+  ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
-target_link_libraries(imgui PUBLIC SDL3::SDL3)
+target_link_libraries(imgui PUBLIC SDL3::SDL3 Vulkan::Headers)
 
 # manual download of single stb header
 file(
   DOWNLOAD
   https://raw.githubusercontent.com/nothings/stb/refs/heads/master/stb_image.h
   ${CMAKE_BINARY_DIR}/stb/stb_image.h)
+
+# download psrdnoise GLSL for shader includes
+file(
+  DOWNLOAD
+  https://raw.githubusercontent.com/stegu/psrdnoise/main/src/psrdnoise3-min.glsl
+  ${CMAKE_BINARY_DIR}/shaders/include/psrdnoise3.glsl)
 
 # auto-discover all shader files and compile to SPIR-V
 file(
@@ -90,7 +97,7 @@ foreach(SHADER ${SHADER_FILES})
 
   add_custom_command(
     OUTPUT ${SPV_OUTPUT}
-    COMMAND glslang-standalone -V ${SHADER} -o ${SPV_OUTPUT}
+    COMMAND glslang-standalone -V -I${CMAKE_BINARY_DIR}/shaders/include ${SHADER} -o ${SPV_OUTPUT}
     DEPENDS ${SHADER}
     COMMENT "Compiling shader ${REL_PATH}")
   list(APPEND SPV_FILES ${SPV_OUTPUT})
@@ -103,6 +110,10 @@ add_executable(
   ${PROJECT_SOURCE_DIR}/src/main.cpp ${PROJECT_SOURCE_DIR}/src/vk_engine.cpp
   ${PROJECT_SOURCE_DIR}/src/vk_initializers.cpp
   ${PROJECT_SOURCE_DIR}/src/vk_pipelines.cpp
+  ${PROJECT_SOURCE_DIR}/src/vk_descriptors.cpp
+  ${PROJECT_SOURCE_DIR}/src/mc_tables.cpp
+  ${PROJECT_SOURCE_DIR}/src/terrain.cpp
+  ${PROJECT_SOURCE_DIR}/src/gui.cpp
   ${PROJECT_SOURCE_DIR}/src/vk_mem_alloc_impl.cpp
   ${PROJECT_SOURCE_DIR}/src/camera.cpp)
 target_include_directories(${CMAKE_PROJECT_NAME}
@@ -118,4 +129,7 @@ target_link_libraries(
   GPUOpen::VulkanMemoryAllocator
   vk-bootstrap::vk-bootstrap
   fmt)
+if(ENABLE_DEBUG_GUI)
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE ENABLE_DEBUG_GUI)
+endif()
 add_dependencies(${CMAKE_PROJECT_NAME} shaders)
