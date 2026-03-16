@@ -59,11 +59,16 @@ void DebugGui::begin_frame() {
 
 void DebugGui::render(VkCommandBuffer cmd, TerrainParams& params) {
     ImGui::Begin("Terrain");
+    int gridSize = (int)params.gridSize;
+    if (ImGui::SliderInt("Grid Size", &gridSize, 8, 96)) {
+        params.gridSize = (uint32_t)gridSize;
+    }
     ImGui::SliderFloat("Alpha", &params.alpha, 0.0f, 6.28f);
     ImGui::SliderFloat("Iso Level", &params.isoLevel, -1.0f, 1.0f);
     ImGui::SliderFloat("Frequency", &params.frequency, 0.1f, 10.0f);
     ImGui::SliderFloat("Amplitude", &params.amplitude, 0.1f, 5.0f);
     ImGui::SliderFloat("Voxel Scale", &params.voxelScale, 0.01f, 0.2f);
+    ImGui::SliderFloat("Radius", &params.radius, 0.05f, 2.f);
     ImGui::End();
 
     ImGui::Render();

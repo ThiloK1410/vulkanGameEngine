@@ -12,6 +12,7 @@
 
 struct PushConstants {
   glm::mat4 mvp;
+  glm::mat4 model;
   glm::vec4 color;
 };
 

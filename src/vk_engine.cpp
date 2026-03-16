@@ -11,6 +11,7 @@
 #include <VkBootstrap.h>
 #include <fmt/core.h>
 #include <glm/mat4x4.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "vk_initializers.h"
 #include "vk_pipelines.h"
@@ -580,11 +581,10 @@ void VulkanEngine::record_scene(VkCommandBuffer cmd) {
     // First frame after creation: UNDEFINED + CLEAR (contents are garbage)
     // Subsequent frames: TRANSFER_SRC + LOAD (preserve previous frame for trails)
     transition_image(
-        cmd, _drawImage,
-        _drawImageReady ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT);
+        cmd, _drawImage, VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_NONE,
+        VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
     transition_image(cmd, _depthImage,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
@@ -595,7 +595,7 @@ void VulkanEngine::record_scene(VkCommandBuffer cmd) {
         .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
         .imageView = _drawImageView,
         .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .loadOp = _drawImageReady ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
         .clearValue = {.color = {{0.0f, 0.0f, 0.0f, 1.0f}}},
     };
@@ -636,49 +636,20 @@ void VulkanEngine::record_scene(VkCommandBuffer cmd) {
     };
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // 1) Fade: draw fullscreen triangle with low-alpha black to dim previous contents
-    if (_drawImageReady) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelines.fade);
-
-        PushConstants fadePush{
-            .mvp = glm::mat4(1.0f),
-            .color = {0.0f, 0.0f, 0.0f, 0.1f},
-        };
-        vkCmdPushConstants(cmd, _pipelines.triangleLayout,
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(fadePush), &fadePush);
-
-        vkCmdDraw(cmd, 3, 1, 0, 0);
-    }
-
-    // 2) Draw the cube
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelines.triangle);
-
-    float angle = _frameNumber / 120.f;
-    _camera.orbitAround(glm::vec3{0.f}, 3.f, angle);
-
     float aspectRatio = (float)_swapchainExtent.width / (float)_swapchainExtent.height;
-    glm::mat4 mvp = _camera.projectionMatrix(aspectRatio) * _camera.viewMatrix();
+    glm::mat4 vp = _camera.projectionMatrix(aspectRatio) * _camera.viewMatrix();
 
-    PushConstants push{
-        .mvp = mvp,
-        .color = {1.0f, 1.0f, 1.0f, 1.0f},
-    };
-    vkCmdPushConstants(cmd, _pipelines.triangleLayout,
-                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push),
-                       &push);
+    float angle = _frameNumber / 1000.f;
+    glm::mat4 model = glm::rotate(glm::mat4(1.f), angle, glm::vec3{0.f, 1.f, 0.f});
 
-    VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmd, 0, 1, &_cubeMesh.vertexBuffer.buffer, &offset);
-    vkCmdBindIndexBuffer(cmd, _cubeMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
-
-    vkCmdDrawIndexed(cmd, _cubeMesh.indexCount, 1, 0, 0, 0);
+    glm::mat4 mvp = vp * model;
 
     // draw terrain
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelines.terrain);
 
     PushConstants terrainPush{
         .mvp = mvp,
+        .model = model,
         .color = {0.6f, 0.8f, 0.4f, 1.0f},
     };
     vkCmdPushConstants(cmd, _pipelines.triangleLayout,
@@ -733,6 +704,7 @@ void VulkanEngine::copy_to_swapchain(VkCommandBuffer cmd, uint32_t swapchainImag
 
 void VulkanEngine::draw() {
     VK_CHECK(vkWaitForFences(_device, 1, &_renderFence, true, 1000000000));
+    _terrain.resize_if_needed(_device, _allocator, _terrainParams.gridSize);
     VK_CHECK(vkResetFences(_device, 1, &_renderFence));
 
     uint32_t swapchainImageIndex;

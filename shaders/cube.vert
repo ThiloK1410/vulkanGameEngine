@@ -2,6 +2,7 @@
 
 layout(push_constant) uniform Push {
     mat4 mvp;
+    mat4 model;
 } push;
 
 layout(location = 0) in vec3 inPosition;

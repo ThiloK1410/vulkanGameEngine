@@ -17,6 +17,7 @@ struct ComputeParams {
     float amplitude;
     float alpha;
     float isoLevel;
+    float radius;
 };
 
 // --- buffer management ---
@@ -199,6 +200,17 @@ void Terrain::cleanup(VkDevice device, VmaAllocator allocator) {
     vkDestroyPipelineLayout(device, _computeLayout, nullptr);
 }
 
+void Terrain::resize_if_needed(VkDevice device, VmaAllocator allocator, uint32_t gridSize) {
+    if (gridSize == _gridSize) return;
+
+    vkDeviceWaitIdle(device);
+    destroy_buffers(device, allocator);
+    create_buffers(device, allocator, gridSize);
+    update_descriptor_set(device);
+
+    fmt::print("Terrain resized — grid {}³\n", _gridSize);
+}
+
 // --- per-frame dispatch ---
 
 void Terrain::dispatch(VkCommandBuffer cmd, const TerrainParams& params) {
@@ -209,6 +221,7 @@ void Terrain::dispatch(VkCommandBuffer cmd, const TerrainParams& params) {
         .amplitude = params.amplitude,
         .alpha = params.alpha,
         .isoLevel = params.isoLevel,
+        .radius = params.radius,
     };
 
     // reset indirect draw command: indexCount=0, instanceCount=1, rest=0

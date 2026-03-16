@@ -1,7 +1,8 @@
 #version 450
 
 layout(push_constant) uniform Push {
-    mat4 mvp;   // occupied by vertex shader, but must be declared for correct offset
+    mat4 mvp;
+    mat4 model;
     vec4 color;
 } push;
 

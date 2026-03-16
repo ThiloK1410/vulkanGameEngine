@@ -13,12 +13,16 @@ struct TerrainParams {
     float amplitude = 1.0f;
     float alpha = 0.0f;
     float isoLevel = 0.0f;
+    float radius = 0.3f;
 };
 
 class Terrain {
 public:
     void init(VkDevice device, VmaAllocator allocator, uint32_t queueFamily);
     void cleanup(VkDevice device, VmaAllocator allocator);
+
+    // reallocate buffers if gridSize changed (call after GPU idle)
+    void resize_if_needed(VkDevice device, VmaAllocator allocator, uint32_t gridSize);
 
     // record compute commands into cmd
     void dispatch(VkCommandBuffer cmd, const TerrainParams& params);
